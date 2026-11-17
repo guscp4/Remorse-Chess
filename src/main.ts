@@ -9,8 +9,13 @@ import { OnlineSession, roomLinkFor, type NetMessage, type OnlineRole } from "./
 
 // Both colors use the same solid (filled) glyph shapes — only the fill/outline
 // CSS colors differ — so White pieces render filled instead of hollow-outline.
+// The trailing U+FE0E forces TEXT presentation: without it, some mobile browsers
+// (iOS/Android) render these chess symbols with their own fixed-color emoji-style
+// glyph instead of plain text, which ignores our CSS color/outline entirely and
+// makes white and black pieces look identical — this only shows up on phones
+// because desktop font stacks already default to text presentation for them.
 const SOLID_GLYPH: Record<PieceType, string> = {
-  K: "♚", Q: "♛", R: "♜", B: "♝", N: "♞", P: "♟",
+  K: "♚︎", Q: "♛︎", R: "♜︎", B: "♝︎", N: "♞︎", P: "♟︎",
 };
 const GLYPH: Record<Color, Record<PieceType, string>> = { w: SOLID_GLYPH, b: SOLID_GLYPH };
 
