@@ -166,8 +166,12 @@ export class Game {
     };
   }
 
-  /** Called once the player presses "Lançar" on a pending first-time capture roll. */
-  rollPendingDice(): DiceResolutionResult {
+  /**
+   * Called once the player presses "Lançar" on a pending first-time capture roll.
+   * `forcedFace` lets networked play replay the exact same roll the other side
+   * already made, instead of drawing a new independent random result.
+   */
+  rollPendingDice(forcedFace?: DieFace): DiceResolutionResult {
     const pieceId = this.pendingDiceRollPieceId;
     if (!pieceId) {
       throw new Error("No dice roll is pending.");
@@ -178,7 +182,7 @@ export class Game {
     const messages: string[] = [];
     const eliminated: Piece[] = [];
 
-    const diceRoll = this.resolveCapture(piece, messages);
+    const diceRoll = this.resolveCapture(piece, messages, forcedFace);
     this.pendingDiceRollPieceId = null;
 
     const mover = piece.color;
@@ -216,13 +220,13 @@ export class Game {
     return true;
   }
 
-  private resolveCapture(piece: Piece, messages: string[]): DiceRollResult {
+  private resolveCapture(piece: Piece, messages: string[], forcedFace?: DieFace): DiceRollResult {
     const wasFirstRoll = piece.locked === "none";
     let face: DieFace | null;
     let category: LockedCategory;
 
     if (wasFirstRoll) {
-      face = rollD6();
+      face = forcedFace ?? rollD6();
       category = categoryForRoll(face);
       piece.locked = category;
     } else {

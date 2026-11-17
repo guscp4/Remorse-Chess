@@ -2,9 +2,10 @@ import "./style.css";
 import { Game, PIECE_VALUE } from "./engine/game";
 import { getPiece, sameSquare, squareToAlgebraic } from "./engine/board";
 import { isInCheck } from "./engine/movegen";
-import type { Color, DiceRollResult, Move, Piece, PieceType, Square } from "./engine/types";
+import type { Color, DieFace, DiceRollResult, Move, Piece, PieceType, Square } from "./engine/types";
 import { cornerBadge, mainBadge, STATUS_LEGEND } from "./ui/status";
 import { formatMove } from "./ui/notation";
+import { OnlineSession, roomLinkFor, type NetMessage, type OnlineRole } from "./net/online";
 
 // Both colors use the same solid (filled) glyph shapes — only the fill/outline
 // CSS colors differ — so White pieces render filled instead of hollow-outline.
@@ -15,7 +16,14 @@ const GLYPH: Record<Color, Record<PieceType, string>> = { w: SOLID_GLYPH, b: SOL
 
 const PROMO_LABEL: Record<string, string> = { Q: "Dama", R: "Torre", B: "Bispo", N: "Cavalo" };
 
-type DiceStage = "prompt" | "rolling" | "result" | null;
+type DiceStage = "prompt" | "rolling" | "result" | "waiting" | null;
+type OnlineStatus = "idle" | "hosting-wait" | "joining" | "connected" | "error";
+
+interface OnlineState {
+  session: OnlineSession;
+  role: OnlineRole;
+  myColor: Color;
+}
 
 let game = new Game();
 let selected: Square | null = null;
@@ -25,11 +33,16 @@ let diceStage: DiceStage = null;
 let diceRollData: DiceRollResult | null = null;
 let logEntries: { text: string; kind: "move" | "info" }[] = [];
 
+let online: OnlineState | null = null;
+let onlineStatus: OnlineStatus = "idle";
+let onlineError: string | null = null;
+let roomCode: string | null = null;
+
 const app = document.getElementById("app")!;
 app.innerHTML = `
   <div class="main-col">
     <h1><span class="remorse">Remorse</span>Chess</h1>
-    <p class="subtitle">Humano vs. humano, no mesmo dispositivo</p>
+    <p class="subtitle">Humano vs. humano, no mesmo dispositivo ou online</p>
     <div id="status-bar" class="status-bar"></div>
     <div id="captures-top" class="captures-row"></div>
     <div id="board" class="board"></div>
@@ -39,6 +52,10 @@ app.innerHTML = `
     </div>
   </div>
   <div class="side-col">
+    <div class="panel" id="online-panel">
+      <h2>Jogar Online</h2>
+      <div id="online-content"></div>
+    </div>
     <details class="panel" id="legend-panel" open>
       <summary><h2>Estados das Peças</h2></summary>
     </details>
@@ -55,6 +72,7 @@ const legendPanel = document.getElementById("legend-panel")!;
 const logEl = document.getElementById("log")!;
 const capturesTopEl = document.getElementById("captures-top")!;
 const capturesBottomEl = document.getElementById("captures-bottom")!;
+const onlineContentEl = document.getElementById("online-content")!;
 
 legendPanel.innerHTML += STATUS_LEGEND.map(
   (s) => `
@@ -65,6 +83,13 @@ legendPanel.innerHTML += STATUS_LEGEND.map(
 ).join("");
 
 document.getElementById("new-game")!.addEventListener("click", () => {
+  if (online && onlineStatus === "connected") {
+    online.session.send({ type: "newGame" });
+  }
+  resetGame();
+});
+
+function resetGame() {
   game = new Game();
   selected = null;
   legalTargets = [];
@@ -73,7 +98,7 @@ document.getElementById("new-game")!.addEventListener("click", () => {
   diceRollData = null;
   logEntries = [];
   render();
-});
+}
 
 function squareFromCellEl(el: HTMLElement): Square {
   return { row: parseInt(el.dataset.row!, 10), col: parseInt(el.dataset.col!, 10) };
@@ -88,6 +113,8 @@ boardEl.addEventListener("click", (e) => {
 function onSquareClick(sq: Square) {
   if (game.status !== "playing") return;
   if (diceStage || pendingPromotion) return;
+  if (online && onlineStatus !== "connected") return;
+  if (online && game.turn !== online.myColor) return;
 
   if (selected) {
     const matches = legalTargets.filter((m) => sameSquare(m.to, sq));
@@ -114,7 +141,20 @@ function onSquareClick(sq: Square) {
   render();
 }
 
+/** A move the LOCAL player just chose (click or promotion pick) — relayed to the peer, if any. */
 function playMove(move: Move) {
+  if (online && onlineStatus === "connected") {
+    online.session.send({ type: "move", from: move.from, to: move.to, promotion: move.promotion });
+  }
+  commitMove(move, true);
+}
+
+/** The same move, as replayed from a message the peer sent us. */
+function applyIncomingMove(move: Move) {
+  commitMove(move, false);
+}
+
+function commitMove(move: Move, isLocal: boolean) {
   const result = game.makeMove(move);
   logEntries.push({ text: formatMove(move), kind: "move" });
   for (const m of result.messages) logEntries.push({ text: m, kind: "info" });
@@ -124,7 +164,7 @@ function playMove(move: Move) {
   pendingPromotion = null;
 
   if (result.pendingDiceRoll) {
-    diceStage = "prompt";
+    diceStage = isLocal ? "prompt" : "waiting";
   }
   render();
 }
@@ -137,14 +177,18 @@ function choosePromotion(type: PieceType) {
   else render();
 }
 
-function startDiceRoll() {
+/** Rolls the pending capture die. `forcedFace` replays a roll the peer already made. */
+function runDiceRoll(forcedFace?: DieFace) {
   diceStage = "rolling";
   render();
   window.setTimeout(() => {
-    const result = game.rollPendingDice();
+    const result = game.rollPendingDice(forcedFace);
     for (const m of result.messages) logEntries.push({ text: m, kind: "info" });
     diceRollData = result.diceRoll;
     diceStage = "result";
+    if (forcedFace === undefined && online && onlineStatus === "connected" && result.diceRoll.face) {
+      online.session.send({ type: "diceRoll", face: result.diceRoll.face });
+    }
     render();
   }, 650);
 }
@@ -155,11 +199,187 @@ function dismissDiceModal() {
   render();
 }
 
+function handleNetMessage(msg: NetMessage) {
+  if (msg.type === "move") {
+    const candidates = game.getLegalMovesFrom(msg.from);
+    const move = candidates.find(
+      (m) => sameSquare(m.to, msg.to) && (m.promotion ?? null) === (msg.promotion ?? null)
+    );
+    if (move) applyIncomingMove(move);
+    return;
+  }
+  if (msg.type === "diceRoll") {
+    if (game.pendingDiceRollPieceId) runDiceRoll(msg.face);
+    return;
+  }
+  if (msg.type === "newGame") {
+    resetGame();
+    return;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Online: create/join a room over a direct WebRTC connection (PeerJS).
+// ---------------------------------------------------------------------------
+
+async function startHosting() {
+  resetGame();
+  onlineStatus = "hosting-wait";
+  roomCode = null;
+  onlineError = null;
+  renderOnlinePanel();
+
+  const session = new OnlineSession();
+  online = { session, role: "host", myColor: "w" };
+  session.onMessage = handleNetMessage;
+  session.onConnected = () => {
+    onlineStatus = "connected";
+    resetGame();
+  };
+  session.onDisconnected = () => {
+    onlineStatus = "error";
+    onlineError = "O adversário desconectou-se.";
+    renderOnlinePanel();
+  };
+  session.onError = (message) => {
+    onlineStatus = "error";
+    onlineError = message;
+    renderOnlinePanel();
+  };
+
+  try {
+    roomCode = await session.host();
+    renderOnlinePanel();
+  } catch (e) {
+    onlineStatus = "error";
+    onlineError = e instanceof Error ? e.message : "Erro ao criar a sala.";
+    online = null;
+    renderOnlinePanel();
+  }
+}
+
+async function joinOnline(code: string) {
+  resetGame();
+  onlineStatus = "joining";
+  onlineError = null;
+  renderOnlinePanel();
+
+  const session = new OnlineSession();
+  online = { session, role: "joiner", myColor: "b" };
+  session.onMessage = handleNetMessage;
+  session.onConnected = () => {
+    onlineStatus = "connected";
+    resetGame();
+  };
+  session.onDisconnected = () => {
+    onlineStatus = "error";
+    onlineError = "O adversário desconectou-se.";
+    renderOnlinePanel();
+  };
+  session.onError = (message) => {
+    onlineStatus = "error";
+    onlineError = message;
+    renderOnlinePanel();
+  };
+
+  try {
+    await session.join(code);
+  } catch (e) {
+    onlineStatus = "error";
+    onlineError = e instanceof Error ? e.message : "Erro ao ligar à sala.";
+    online = null;
+    renderOnlinePanel();
+  }
+}
+
+function leaveOnline() {
+  online?.session.close();
+  online = null;
+  onlineStatus = "idle";
+  onlineError = null;
+  roomCode = null;
+  const url = new URL(window.location.href);
+  url.search = "";
+  window.history.replaceState({}, "", url.toString());
+  resetGame();
+  renderOnlinePanel();
+}
+
+async function copyRoomLink() {
+  if (!roomCode) return;
+  const link = roomLinkFor(roomCode);
+  const btn = document.getElementById("copy-link-btn");
+  try {
+    await navigator.clipboard.writeText(link);
+  } catch {
+    const input = document.getElementById("room-link-input") as HTMLInputElement | null;
+    input?.select();
+    document.execCommand("copy");
+  }
+  if (btn) {
+    const old = btn.textContent;
+    btn.textContent = "Copiado!";
+    window.setTimeout(() => {
+      btn.textContent = old;
+    }, 1500);
+  }
+}
+
+function renderOnlinePanel() {
+  if (onlineStatus === "idle") {
+    onlineContentEl.innerHTML = `
+      <p class="online-desc">Cria uma sala e envia o link a um amigo para jogarem em dispositivos diferentes.</p>
+      <button id="host-btn">Criar Sala</button>
+    `;
+    document.getElementById("host-btn")!.addEventListener("click", startHosting);
+  } else if (onlineStatus === "hosting-wait") {
+    if (roomCode) {
+      const link = roomLinkFor(roomCode);
+      onlineContentEl.innerHTML = `
+        <p class="online-desc">Envia este link ao teu adversário:</p>
+        <div class="room-link-row">
+          <input id="room-link-input" type="text" readonly value="${link}">
+          <button id="copy-link-btn" class="secondary">Copiar</button>
+        </div>
+        <p class="online-status-waiting">A aguardar que o adversário entre na sala...</p>
+      `;
+      document.getElementById("copy-link-btn")!.addEventListener("click", copyRoomLink);
+    } else {
+      onlineContentEl.innerHTML = `<p class="online-desc">A criar a sala...</p>`;
+    }
+  } else if (onlineStatus === "joining") {
+    onlineContentEl.innerHTML = `<p class="online-desc">A ligar à sala...</p>`;
+  } else if (onlineStatus === "connected" && online) {
+    const colorLabel = online.myColor === "w" ? "Brancas" : "Pretas";
+    onlineContentEl.innerHTML = `
+      <p class="online-connected">🟢 Ligado — a jogar como <b>${colorLabel}</b></p>
+      <button id="leave-btn" class="secondary">Sair da Sala</button>
+    `;
+    document.getElementById("leave-btn")!.addEventListener("click", leaveOnline);
+  } else if (onlineStatus === "error") {
+    onlineContentEl.innerHTML = `
+      <p class="online-error">${onlineError ?? "Ocorreu um erro."}</p>
+      <button id="retry-btn" class="secondary">Tentar novamente</button>
+    `;
+    document.getElementById("retry-btn")!.addEventListener("click", () => {
+      onlineStatus = "idle";
+      onlineError = null;
+      online = null;
+      renderOnlinePanel();
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+
 function render() {
   renderStatusBar();
   renderBoard();
   renderCaptures();
   renderLog();
+  renderOnlinePanel();
   renderOverlays();
 }
 
@@ -184,7 +404,8 @@ function renderStatusBar() {
 }
 
 function renderBoard() {
-  boardEl.classList.toggle("flipped", game.turn === "b");
+  const flip = online ? online.myColor === "b" : game.turn === "b";
+  boardEl.classList.toggle("flipped", flip);
 
   const kingInCheckSq =
     game.status === "playing" && isInCheck(game.board, game.turn)
@@ -286,7 +507,15 @@ function renderOverlays() {
         </div>
       `;
       document.body.appendChild(overlay);
-      document.getElementById("dice-roll-btn")!.addEventListener("click", startDiceRoll);
+      document.getElementById("dice-roll-btn")!.addEventListener("click", () => runDiceRoll());
+    } else if (diceStage === "waiting") {
+      overlay.innerHTML = `
+        <div class="dice-modal">
+          <div>Captura! O adversário vai lançar o dado...</div>
+          <div class="die-face idle">🎲</div>
+        </div>
+      `;
+      document.body.appendChild(overlay);
     } else if (diceStage === "rolling") {
       overlay.innerHTML = `
         <div class="dice-modal">
@@ -342,3 +571,8 @@ function diceFaceGlyph(face: number): string {
 }
 
 render();
+
+const initialRoomParam = new URLSearchParams(window.location.search).get("room");
+if (initialRoomParam) {
+  joinOnline(initialRoomParam.toUpperCase());
+}

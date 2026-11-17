@@ -366,6 +366,42 @@ h1 .remorse {
 .legend-item b { display: block; }
 .legend-item span.desc { color: var(--text-dim); }
 
+.online-desc {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  margin: 0 0 10px;
+}
+.room-link-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+#room-link-input {
+  flex: 1;
+  min-width: 0;
+  background: #120f17;
+  border: 1px solid var(--panel-border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 0.8rem;
+}
+.online-status-waiting {
+  color: var(--c-psychopath);
+  font-size: 0.85rem;
+  margin: 0;
+}
+.online-connected {
+  color: var(--c-unbothered);
+  font-size: 0.9rem;
+  margin: 0 0 10px;
+}
+.online-error {
+  color: var(--c-bloodlust);
+  font-size: 0.85rem;
+  margin: 0 0 10px;
+}
+
 .log {
   max-height: 220px;
   overflow-y: auto;
