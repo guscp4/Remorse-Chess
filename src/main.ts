@@ -16,6 +16,28 @@ const GLYPH: Record<Color, Record<PieceType, string>> = { w: SOLID_GLYPH, b: SOL
 
 const PROMO_LABEL: Record<string, string> = { Q: "Dama", R: "Torre", B: "Bispo", N: "Cavalo" };
 
+const RULES_HTML = `
+  <p>RemorseChess é xadrez normal — as peças movem-se e capturam como seria de esperar, com roque, en passant e promoção incluídos — mas com uma mecânica extra: <b>sempre que uma peça captura outra, lança-se um dado de 6 faces</b> para decidir o que lhe acontece a seguir.</p>
+
+  <h4>O dado de captura</h4>
+  <ul>
+    <li><span class="rules-dot" style="background:var(--c-devastated)"></span><b>1 — Devastated:</b> a peça fica congelada e não se pode mexer. Um bispo da mesma equipa tem de chegar a uma casa adjacente a ela dentro de 3 turnos, senão a peça sai do jogo. Se a própria peça Devastated for um bispo, não precisa de ajuda — recupera sozinha ao fim de 3 turnos.</li>
+    <li><span class="rules-dot" style="background:var(--c-guiltridden)"></span><b>2 ou 3 — Guilt Ridden:</b> a peça continua a mover-se normalmente, mas não pode capturar nem dar xeque. Um bispo da mesma equipa tem de chegar a uma casa adjacente a ela; a peça volta ao normal no turno seguinte. Um bispo Guilt Ridden recupera sozinho, sem ajuda, dois turnos depois. Um peão Guilt Ridden pode promover — a peça promovida mantém o estado, a não ser que promova a bispo, caso em que fica logo normal.</li>
+    <li><span class="rules-dot" style="background:var(--c-unbothered)"></span><b>4 ou 5 — Unbothered:</b> não acontece nada — a peça fica só marcada para referência futura, mas joga sempre normalmente.</li>
+    <li><span class="rules-dot" style="background:var(--c-psychopath)"></span><b>6 — Psychopath:</b> a peça ganha um movimento extra sempre que captura (no máximo uma vez por turno). Depois de somar 3 capturas desde que se tornou Psychopath, entra em <b style="color:var(--c-bloodlust)">Bloodlust</b>: a partir daí só se pode mover para capturar — mesmo peças da própria equipa.</li>
+  </ul>
+
+  <h4>Uma regra importante</h4>
+  <p>Depois de uma peça ganhar um estado, esse estado é permanente até ao fim do jogo. Se a peça for "curada" (por um bispo, ou ao promover a bispo) e voltar a capturar mais tarde, o dado <b>não</b> é lançado outra vez — aplica-se automaticamente o mesmo estado de antes.</p>
+
+  <h4>Identificar os estados no tabuleiro</h4>
+  <p>Cada peça com um estado tem um círculo colorido: <b>grande e destacado</b> quando o estado está ativo neste momento, <b>pequeno e discreto</b> no canto quando a peça já tem um estado atribuído mas não está ativo agora. As cores correspondem à legenda "Estados das Peças" ao lado do tabuleiro.</p>
+
+  <h4>Formas de jogar</h4>
+  <p><b>Mesmo dispositivo:</b> os dois jogadores jogam alternadamente no mesmo ecrã — em telemóvel, o tabuleiro vira automaticamente a cada turno para quem está a jogar.</p>
+  <p><b>Online:</b> um jogador cria uma sala em "Jogar Online" e envia o link ao adversário; cada um joga depois a partir do seu próprio dispositivo.</p>
+`;
+
 type DiceStage = "prompt" | "rolling" | "result" | "waiting" | null;
 type OnlineStatus = "idle" | "hosting-wait" | "joining" | "connected" | "error";
 
@@ -37,6 +59,7 @@ let online: OnlineState | null = null;
 let onlineStatus: OnlineStatus = "idle";
 let onlineError: string | null = null;
 let roomCode: string | null = null;
+let rulesOpen = false;
 
 const app = document.getElementById("app")!;
 app.innerHTML = `
@@ -49,6 +72,7 @@ app.innerHTML = `
     <div id="captures-bottom" class="captures-row"></div>
     <div style="margin-top:14px; display:flex; gap:10px;">
       <button id="new-game" class="secondary">Novo Jogo</button>
+      <button id="rules-btn" class="secondary">Regras</button>
     </div>
   </div>
   <div class="side-col">
@@ -89,6 +113,11 @@ document.getElementById("new-game")!.addEventListener("click", () => {
   resetGame();
 });
 
+document.getElementById("rules-btn")!.addEventListener("click", () => {
+  rulesOpen = true;
+  render();
+});
+
 function resetGame() {
   game = new Game();
   selected = null;
@@ -112,7 +141,7 @@ boardEl.addEventListener("click", (e) => {
 
 function onSquareClick(sq: Square) {
   if (game.status !== "playing") return;
-  if (diceStage || pendingPromotion) return;
+  if (diceStage || pendingPromotion || rulesOpen) return;
   if (online && onlineStatus !== "connected") return;
   if (online && game.turn !== online.myColor) return;
 
@@ -493,6 +522,32 @@ function renderLog() {
 
 function renderOverlays() {
   document.querySelectorAll(".overlay").forEach((el) => el.remove());
+
+  if (rulesOpen) {
+    const overlay = document.createElement("div");
+    overlay.className = "overlay";
+    overlay.innerHTML = `
+      <div class="rules-modal">
+        <div class="rules-header">
+          <h3>Como jogar RemorseChess</h3>
+          <button id="rules-close" class="secondary rules-close-btn" aria-label="Fechar">✕</button>
+        </div>
+        <div class="rules-content">${RULES_HTML}</div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    document.getElementById("rules-close")!.addEventListener("click", () => {
+      rulesOpen = false;
+      render();
+    });
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) {
+        rulesOpen = false;
+        render();
+      }
+    });
+    return;
+  }
 
   if (diceStage) {
     const overlay = document.createElement("div");
