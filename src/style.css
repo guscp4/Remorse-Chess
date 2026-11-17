@@ -1,0 +1,474 @@
+:root {
+  color-scheme: dark;
+  --bg: #15111a;
+  --panel: #1f1a26;
+  --panel-border: #332a3d;
+  --text: #ece6f0;
+  --text-dim: #a89bb5;
+  --accent: #b23a48;
+  --square-light: #e8d9d0;
+  --square-dark: #6b4a52;
+  --square-selected: #e0b84a;
+  --square-target: #7fae68;
+  --square-target-capture: #c1543f;
+  --check: #ff4d4d;
+
+  --c-devastated: #8b8ea0;
+  --c-guiltridden: #8b5cf6;
+  --c-unbothered: #3fa66b;
+  --c-psychopath: #e8792b;
+  --c-bloodlust: #e21e1e;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", system-ui, sans-serif;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Mobile-first: stacked column layout. Widens into a side-by-side layout at --desktop-bp. */
+#app {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 12px;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+h1 {
+  font-size: clamp(1.25rem, 5vw, 1.6rem);
+  margin: 0 0 4px;
+  letter-spacing: 0.02em;
+  text-align: center;
+}
+h1 .remorse {
+  color: var(--accent);
+}
+.subtitle {
+  margin: 0 0 12px;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.main-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
+@media (min-width: 881px) {
+  #app {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 24px;
+    padding: 24px;
+  }
+  .subtitle { margin: 0 0 16px; }
+}
+
+.status-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-size: 1.05rem;
+  min-height: 28px;
+  text-align: center;
+}
+
+.turn-chip {
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-weight: 600;
+  border: 2px solid var(--panel-border);
+}
+.turn-chip.w { background: #e8d9d0; color: #211a1a; }
+.turn-chip.b { background: #2a2230; color: #ece6f0; border-color: #ece6f0; }
+
+.check-flag {
+  color: var(--check);
+  font-weight: 700;
+}
+
+.extra-move-banner {
+  background: linear-gradient(90deg, #3a1020, #5a1020);
+  border: 1px solid var(--c-psychopath);
+  color: #ffd9b0;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.main-col {
+  --sq: min(72px, calc((100vw - 32px) / 8));
+}
+@media (min-width: 881px) {
+  .main-col {
+    --sq: min(72px, calc((100vw - 372px) / 8));
+  }
+}
+
+.captures-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  min-height: 24px;
+  width: 100%;
+  max-width: calc(var(--sq) * 8 + 8px);
+  padding: 0 4px;
+}
+.captures-row:first-of-type {
+  margin-bottom: 4px;
+}
+.captures-row:last-of-type {
+  margin-top: 4px;
+}
+.capture-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+.capture-icon.white {
+  color: #f7f1e4;
+  -webkit-text-stroke: 1px #2b2b2b;
+  paint-order: stroke fill;
+}
+.capture-icon.black {
+  color: #1c1a1f;
+  -webkit-text-stroke: 0.75px #000;
+  paint-order: stroke fill;
+}
+.capture-advantage {
+  margin-left: 6px;
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--c-unbothered);
+}
+
+.board {
+  display: grid;
+  grid-template-columns: repeat(8, var(--sq));
+  grid-template-rows: repeat(8, var(--sq));
+  border: 4px solid #3b2b33;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  transition: transform 0.4s ease;
+}
+.board.flipped {
+  transform: rotate(180deg);
+}
+/* Counter-rotate glyphs (and their drop-shadow filter angle) so pieces stay readable;
+   badge/ring dots are circular so they look identical either way. */
+.board.flipped .piece-glyph {
+  transform: rotate(180deg);
+}
+
+.square {
+  width: var(--sq);
+  height: var(--sq);
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.square.light { background: var(--square-light); }
+.square.dark { background: var(--square-dark); }
+.square.selected::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border: 3px solid var(--square-selected);
+  border-radius: 4px;
+  pointer-events: none;
+}
+.square.target::after {
+  content: "";
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--square-target);
+  opacity: 0.85;
+  pointer-events: none;
+}
+.square.target-capture::after {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  border: 4px solid var(--square-target-capture);
+  border-radius: 50%;
+  background: transparent;
+  pointer-events: none;
+}
+.square.in-check {
+  box-shadow: inset 0 0 0 4px var(--check);
+}
+
+.piece-glyph {
+  font-size: calc(var(--sq) * 0.8);
+  line-height: 1;
+  position: relative;
+  z-index: 2;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.55));
+}
+.piece-glyph.white {
+  color: #f7f1e4;
+  -webkit-text-stroke: 1.75px #2b2b2b;
+  paint-order: stroke fill;
+}
+.piece-glyph.black {
+  color: #1c1a1f;
+  -webkit-text-stroke: 1.25px #000;
+  paint-order: stroke fill;
+}
+
+.status-ring {
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  border: 3px solid transparent;
+  pointer-events: none;
+  z-index: 1;
+}
+.status-ring.devastated { border-color: var(--c-devastated); background: radial-gradient(circle, rgba(139,142,160,0.25), transparent 70%); }
+.status-ring.guiltridden { border-color: var(--c-guiltridden); background: radial-gradient(circle, rgba(139,92,246,0.22), transparent 70%); }
+.status-ring.psychopath { border-color: var(--c-psychopath); background: radial-gradient(circle, rgba(232,121,43,0.22), transparent 70%); }
+.status-ring.bloodlust { border-color: var(--c-bloodlust); background: radial-gradient(circle, rgba(226,30,30,0.3), transparent 70%); animation: pulse 1.4s infinite; }
+
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(226,30,30,0.5); }
+  50% { box-shadow: 0 0 0 4px rgba(226,30,30,0.15); }
+}
+
+.badge-dot {
+  position: absolute;
+  border-radius: 50%;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.6);
+}
+/* Prominent dot: the piece's current, urgent condition. */
+.badge-dot.main {
+  top: -3px;
+  left: -3px;
+  width: 16px;
+  height: 16px;
+  box-shadow: 0 0 6px 1px rgba(0, 0, 0, 0.5), 0 0 0 1.5px rgba(0, 0, 0, 0.6);
+}
+.badge-dot.main .count {
+  font-size: 10px;
+  color: #fff;
+  font-weight: 800;
+  text-shadow: 0 1px 1px #000;
+}
+/* Subtle dot: a locked category that isn't currently active — shown faint and small. */
+.badge-dot.corner {
+  bottom: -1px;
+  right: -1px;
+  width: 10px;
+  height: 10px;
+  opacity: 0.45;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  width: 100%;
+}
+
+.side-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  max-width: 480px;
+}
+
+@media (min-width: 881px) {
+  .panel { width: 300px; }
+  .side-col { max-width: 300px; }
+}
+
+.panel h2 {
+  margin: 0 0 10px;
+  font-size: 1rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* <details> legend on mobile: a tappable summary that collapses the long rules list
+   out of the way; always expanded on desktop where there's room beside the board. */
+#legend-panel summary {
+  cursor: pointer;
+  list-style: none;
+}
+#legend-panel summary::-webkit-details-marker {
+  display: none;
+}
+#legend-panel summary h2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+#legend-panel summary h2::after {
+  content: "▸";
+  transition: transform 0.2s ease;
+  font-size: 0.8em;
+}
+#legend-panel[open] summary h2::after {
+  transform: rotate(90deg);
+}
+
+.legend-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 0.85rem;
+}
+.legend-dot {
+  display: inline-block;
+  vertical-align: middle;
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
+  border-radius: 50%;
+  margin-top: 3px;
+  box-shadow: 0 0 6px 1px rgba(0, 0, 0, 0.4);
+}
+.legend-item b { display: block; }
+.legend-item span.desc { color: var(--text-dim); }
+
+.log {
+  max-height: 220px;
+  overflow-y: auto;
+  font-size: 0.82rem;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.log .entry { color: var(--text-dim); }
+.log .entry.move { color: var(--text); }
+
+button {
+  background: var(--accent);
+  color: white;
+  border: none;
+  padding: 11px 16px;
+  min-height: 44px;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.9rem;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+button:hover { filter: brightness(1.1); }
+button.secondary {
+  background: #332a3d;
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 6, 12, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 16px;
+}
+
+.dice-modal {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  padding: 24px 20px;
+  text-align: center;
+  width: min(320px, 100%);
+}
+.die-face {
+  font-size: 64px;
+  margin: 10px 0;
+}
+.die-face.idle {
+  opacity: 0.6;
+}
+.die-face.spinning {
+  animation: dice-spin 0.5s linear infinite;
+}
+@keyframes dice-spin {
+  0% { transform: rotate(0deg) scale(1); }
+  50% { transform: rotate(180deg) scale(1.15); }
+  100% { transform: rotate(360deg) scale(1); }
+}
+#dice-roll-btn {
+  margin-top: 6px;
+}
+.dice-result-title {
+  font-size: 1.3rem;
+  font-weight: 700;
+  margin: 8px 0;
+}
+.dice-result-desc {
+  color: var(--text-dim);
+  font-size: 0.9rem;
+  margin-bottom: 16px;
+}
+
+.promo-modal {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  padding: 20px;
+  text-align: center;
+  width: min(360px, 100%);
+}
+.promo-options {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+.promo-options button {
+  font-size: 34px;
+  padding: 8px 14px;
+  background: #332a3d;
+}
+
+.game-over-banner {
+  background: linear-gradient(90deg, #3a1020, #16121a);
+  border: 1px solid var(--accent);
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
